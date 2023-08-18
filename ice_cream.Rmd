@@ -1,0 +1,515 @@
+---
+title: "Gelato/Sorbet Sentiment Analysis"
+author: "Erin Alcott"
+date: "2023-07-20"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+For this project, I wanted to identify what people like most about Talenti's most popular products. To do so, I used lexicon-based sentiment analysis to classify words in product reviews as "positive" or "negative" (or neutral). I ranked Talenti products by their ratings and by the percentage of positive sentiment in their reviews. I then created word clouds to visualize the most commonly used words in positive reviews (3 stars or higher) and the most commonly used positive words in these reviews. Doing so helps give attention to relevant non-sentimental descriptors (e.g.: "chocolate," "pint") and relevant sentimental descriptors (e.g.: "smooth").
+
+Find my data source here: https://www.kaggle.com/datasets/tysonpo/ice-cream-dataset 
+
+# **CONCLUSIONS**
+Talenti has mostly 5-star reviews and products with a median rating of 4.4, and only one product out of the 45 in the dataset falls below 3 stars. Talenti's products are generally well-liked among their customers leaving reviews in the dataset. The top flavor in terms of high ratings and high sentiment percentage is the Organic Oak-Aged Vanilla Gelato, with a rating of 4.8 and 82% positive sentiment percentage across all reviews. Some of Talenti's most popular products also include the Coconut Almond Chocolate Gelato, the Caramel Apple Pie Gelato, the Belgian Chocolate Gelato, the Organic Ginger Matcha Gelato, the Peanut Butter Fudge Sorbetto, and the Alphonso Mango Sorbetto. 
+
+Based on my analysis, Talenti's top products are loved for their unique flavors and flavor combinations, their smooth and creamy texture, and their balanced qualities, including flavor combinations (i.e.: none overpower or are lacking), ingredient distributions, and the overall quality of the product. Talenti's sorbettos offer dairy-free alternatives that reviews suggest may have similar textures to other dairy-containing frozen desserts. It's likely these attract a dairy-free market, since many positive reviews referenced the desserts being "dairy-free" and/or "vegan." Many reviews referenced flavors being "favorites," which may mean unique and successful products are helping Talenti sustain reliable sales with groups that love specific products in particular. Market research pertaining to these topics may be insightful and interesting to assess. 
+
+Complaints for the lowest rated desserts typically involve poor quality upon consumption or a feeling of false advertising, often as a result of imbalanced qualities/flavor combinations of the dessert. Potential solutions could include increased customer service interactions or improved quality sustenance instructions on packaging/shipment or the containers themselves. At the worst case, recipe changes could be made to improve these qualities of the product where possible. More research (e.g.: market research, quality control research) would need to be done before creating definitive solutions. 
+
+Of interest to me was that many of the Top 10 flavors by Rating included chocolate, and many lower-rated flavors in this regard were pie/crumble/cookie-based flavors. A future project may include correlation testing between chocolate ingredients and high ratings, as well as wheat flour and low ratings. 
+
+
+# **Data Preparation**
+
+```{r load_data, echo=TRUE}
+suppressWarnings({
+  rm(list=ls())
+  library(textdata)
+  library(tidyverse)
+  library(tidytext)
+  library(textclean)
+  setwd("C:\\Users\\eaalc\\OneDrive - Umich\\Ice Cream")
+  
+  ice_cream <- read.csv("archive (10)\\talenti\\products.csv")
+  review <- read.csv("archive (10)\\talenti\\reviews.csv")
+  ice_cream <- data.frame(ice_cream)
+  review <- data.frame(review)
+})
+```
+
+# **Data Exploration**
+
+First, I looked at the first five rows of the two datasets. Then I looked at the flavors of ice cream in the dataset. There are 45 total ice cream flavors. Finally, because the review dataset uses flavor "keys" rather than flavor names, I did a right join between the two datasets. 
+
+```{r explore, echo=TRUE}
+head(ice_cream)
+head(review)
+unique(ice_cream$name)
+nrow(review)
+
+flavors <- ice_cream[, c("key", "name")]
+review_full <- right_join(flavors, review, by="key")
+
+summary(ice_cream)
+summary(review)
+
+
+```
+
+### **Visualizations**
+
+The graphs below show that there are mostly 5-star reviews in the review dataset, with a median rating of 4.4. Reviews are not evenly distributed by flavor, meaning some flavors have a lot more reviews than others. Finally, since my goal is to evaluate what people like most about top flavors using reviews, I created a boxplot (and barplot) for unhelpful reviews. While there are outliers, most reviews have minimal downvotes. Later on, I'll remove some high-downvote outliers for more accurate sentiment analysis.
+
+
+```{r visualization, echo=TRUE}
+library(ggplot2)
+
+ggplot(data = review, aes(x = stars, fill = factor(stars))) +
+  geom_bar() +
+  scale_fill_manual(values = c("cornflowerblue", "cornflowerblue", "cornflowerblue", "cornflowerblue", "hotpink")) +
+  labs(x = "Stars", y = "Sum of Reviews", title = "Bar Graph of Reviews")
+
+
+ggplot(data = ice_cream) +
+  geom_bar(mapping = aes(x = rating, fill = factor(rating))) +
+  geom_vline(xintercept = median(ice_cream$rating)) +
+  labs(x = "Stars", y = "Sum of Reviews", title = "Bar Graph of Ratings")
+
+ggplot(data = review_full) +
+  geom_bar(mapping = aes(x = key, fill = factor(key))) +
+  labs(x = "Stars", y = "Sum of Reviews", title = "Bar Graph of Reviews") +
+  theme(axis.text.x = element_blank())
+
+ggplot(data = review, aes(x = helpful_no)) + 
+  geom_boxplot()
+
+ggplot(data = review, aes(x = helpful_no)) + 
+  geom_bar(mapping = aes(x = helpful_no, fill = factor(helpful_no)))
+
+    
+
+```
+
+Below are the Top 10 and Bottom 10 Flavors by Rating, given in the review dataset. Bottom 10 is sorted in reverse so that the worst ranked flavor, Chocolate Chip Cookie Dough Gelato, is shown at the top. 
+
+
+```{r highest_by_flavor, echo=TRUE}
+top_10 <- head(ice_cream[order(ice_cream$rating, decreasing=TRUE), ], 10)
+ggplot(data = top_10) +
+  geom_bar(mapping = aes(x = rating, y = reorder(name, rating), 
+           fill = factor(rating)), stat = "identity") +
+  labs(x = "Rating", y = "Flavor", title = "Top 10 Flavors by Rating")
+    
+
+```
+
+
+```{r lowest_by_flavor, echo=TRUE}
+bottom_10 <- head(ice_cream[order(ice_cream$rating, decreasing=FALSE), ], 10)
+ggplot(data = bottom_10) +
+  geom_bar(mapping = aes(x = rating, y = reorder(name, -rating), 
+           fill = factor(rating)), stat = "identity") +
+  labs(x = "Rating", y = "Flavor", title = "Bottom 10 Flavors by Rating")
+    
+
+```
+
+# **Sentiment Analysis**
+
+### **Function Definitions**
+
+I created some useful functions below. One cleans the text by removing all non-letter characters. Two convert reviews into relevant word components. One calculates the percentage of positive (and negative) sentiment words across all reviews by flavor. 
+
+
+```{r function_definitions, echo=TRUE}
+
+#cleans text (removes all non-letter characters)
+clean_text <- function(review_df) {
+  text_list <- character(0)
+  for (i in review_df$text) {
+    #get rid of anything that isn't uppercase/lowercase letter
+    i <- str_replace_all(i, "[^a-zA-Z]", " ")
+    text_list <- append(text_list, i)
+  }
+  review_df$text <- text_list
+  return(review_df)
+  
+}
+
+
+#converts reviews for specific flavor into words
+review_to_word <- function(review_df, name) {
+  review_flavor <- review_df[review_df$name == name,]
+  clean_reviews <- clean_text(review_flavor)
+  review_in_words <- clean_reviews %>% mutate(text = tolower(text)) %>% unnest_tokens(input=text, output=word) %>% anti_join(stop_words, by = "word") %>% count(word)
+  return(review_in_words)
+}
+
+#converts ALL reviews into words
+review_to_word_all <- function(review_df) {
+  clean_reviews <- clean_text(review_full)
+  review_in_words <- clean_reviews %>% mutate(text = tolower(text)) %>% unnest_tokens(input=text, output=word) %>% anti_join(stop_words, by = "word") %>% group_by(name)
+  return(review_in_words)
+}
+
+get_sentiment_percents <- function(review_words, sentiments_in) {
+  sentiment_counts <- review_words %>% inner_join(sentiments_in, by = "word") %>% group_by(name) %>% count(sentiment)
+  sentiment_sums <- sentiment_counts %>% group_by(name) %>% summarise(total_count = sum(n))
+  sentiment_percents <- sentiment_counts %>% full_join(sentiment_sums, by = "name") %>% mutate(percent_each = n / total_count)
+  return(sentiment_percents)
+}
+
+
+```
+
+### **Sentiment Processing**
+
+Since I knew that high downvote reviews were outliers, I knew there probably weren't many of them. Thus, for efficiency, I manually looked at the ratio between upvotes and downvotes. I did this to make sure I wasn't eliminating reviews that simply had a high amount of vote interaction (high downvotes and even higher upvotes). All of the reviews had more downvotes than upvotes, so I eliminated them from analysis. I commented these lines of code out so large dataframes wouldn't be printed in the final review. 
+
+I used "bing" sentiments, which is a dictionary-style library of words with binary definitions indicating "positive" or "negative" sentiment. I inner-joined the "bing" dictionary with the words in the reviews, which labeled the cleaned-up review words as positive or negative. I did this in one of the above functions (get_sentiment_percents).
+The below code chunk calls these functions and stores the percentage data in sentiment_percents. 
+
+There are some limitations to using bing definitions. AI has limitations in interpreting context and/or human communication when classifying as strictly "positive" or "negative." As an example, in the context of ice cream, a person saying they are "addicted" is probably meant facetiously as a good thing. However, the computer will interpret this as a negative word. Important to note is that traits such as "lemon," "crumble," and "dark" are also treated as negatives, which is a drawback when using this type of analysis. 
+
+Keeping limitations and the project goal in mind, the technique remains a time-efficient and reasonably effective method. It digests a large amount of review text into words and facilitates easy visualizations for gaining data insight. Looking at ratings data alongside sentiment analysis data will help ensure insights are accurate/the technique is effective. Likewise, looking at sentiment analysis data alongside ratings data will help ensure the most insightful positive descriptors are highlighted, something the ratings data couldn't do as well by itself. 
+
+```{r preparation, echo=TRUE}
+#review_full[review_full$helpful_no >= 25,]
+#review_full <- review_full[review_full$helpful_no < 25,]
+
+sentiments <- get_sentiments("bing")
+
+ratings_text <- tibble(text = review_full$text, name = review_full$name)
+ratings_text <- clean_text(ratings_text)
+ratings_text_full <- review_to_word_all(ratings_text)
+sentiment_percents <- get_sentiment_percents(ratings_text_full, sentiments)
+
+
+
+
+```
+
+### **Highest and Lowest Percentage Positive Sentiment**
+
+The below bar graphs show which flavors received the highest and lowest percentages of positive sentiment words in their reviews. These graphs help provide supplementary insight to ratings data, as the highest-rated flavor might have vaguer/less insightful reviews than another top-rated flavor. 
+
+A reasonable amount of similarity with the original Top 10 is shown. Organic Oak-Aged Vanilla Gelato remains the top flavor, Chocolate Chip Cookie Dough Gelato remains the worst, and no flavor from the Bottom 10 Ratings shows up in the Top 10 Sentiment-Ratings (and vice-versa). Many flavors from the Top 10 Ratings show up in different places of the Top 10 Sentiment-Ratings, including Alphonso Mango Sorbetto and Mediterranean Mint Gelato. Likewise, some from the Bottom 10 Ratings show up in the Bottom 10 Sentiment-Ratings, including Vanilla Blueberry Crumble Gelato and Raspberry Cheesecake Gelato. 
+ 
+
+
+```{r plot, echo = TRUE}
+sentiment_percents <- ungroup(sentiment_percents)
+sentiment_positive <- sentiment_percents[sentiment_percents$sentiment == "positive",]
+top_10_sentiments <- head(sentiment_positive[order(sentiment_positive$percent_each, decreasing=TRUE), ], 10)
+ggplot(data = top_10_sentiments) + 
+  geom_bar(mapping = aes(x = percent_each, y = reorder(name, percent_each), fill = factor(percent_each)), stat="identity") + 
+  labs(x = "Sentiment Percent Positive", y = "Flavor", title = "Most Positive Words Used in Reviews")
+
+
+sentiment_negative <- sentiment_percents[sentiment_percents$sentiment == "positive",]
+top_10_sentiments <- tail(sentiment_negative[order(sentiment_positive$percent_each, decreasing=TRUE), ], 10)
+ggplot(data = top_10_sentiments) + 
+  geom_bar(mapping = aes(x = percent_each, y = reorder(name, -percent_each), fill = factor(percent_each)), stat="identity") + 
+  labs(x = "Sentiment Percent Positive", y = "Flavor", title = "Least Positive Words Used in Reviews")
+
+```
+
+# **Features in Sentiment Analysis, by (select) Flavors**
+
+### **Function Definitions**
+
+I created some more functions for flavor-specific attributes. One retrieves positive words from reviews, and another retrieves negative words. Two find reviews with 3+ star ratings and 1-2 star ratings, respectively. The final code chunk contains four functions to print word clouds. I needed a workaround solution to have all word clouds show up in the Knit HTML R-Markdown file, so I got help from this URL: https://stackoverflow.com/questions/59443054/wordcloud-error-in-rmarkdown-only-one-wordcloud-shows-up-in-html 
+
+```{r positive words, echo=TRUE}
+
+get_positive_words <- function(flavor, sentiments_in) {
+  flavor_reviews_df <- review_full[review_full$name == flavor,]
+  flavor_reviews_df <- flavor_reviews_df[flavor_reviews_df$stars >= 3,]
+  flavor_reviews_df <- clean_text(flavor_reviews_df)
+  flavor_reviews_df <- review_to_word(flavor_reviews_df, flavor)
+  
+  flavor_reviews_df <- flavor_reviews_df %>% inner_join(sentiments_in, by = "word")
+  flavor_reviews_df <- flavor_reviews_df[flavor_reviews_df$sentiment == "positive",]
+  
+  return(flavor_reviews_df)
+}
+
+get_negative_words <- function(flavor, sentiments_in) {
+  flavor_reviews_df <- review_full[review_full$name == flavor,]
+  flavor_reviews_df <- clean_text(flavor_reviews_df)
+  flavor_reviews_df <- review_to_word(flavor_reviews_df, flavor)
+  
+  flavor_reviews_df <- flavor_reviews_df %>% inner_join(sentiments_in, by = "word")
+  flavor_reviews_df <- flavor_reviews_df[flavor_reviews_df$sentiment == "negative",]
+  
+  return(flavor_reviews_df)
+}
+
+```
+
+```{r three_and_above, echo=TRUE}
+isolate_flavor <- function(flavor) {
+  isolated_flavor_df <- review_full[review_full$name == flavor,]
+  return(isolated_flavor_df)
+}
+
+three_and_above <- function(flavor) {
+  flavor_df <- isolate_flavor(flavor)
+  three_and_above_df <- flavor_df[flavor_df$stars >= 3,]
+  return(three_and_above_df)
+}
+
+three_and_below <- function(flavor) {
+  flavor_df <- isolate_flavor(flavor)
+  three_and_below_df <- flavor_df[flavor_df$stars < 3,]
+  return(three_and_below_df)
+}
+
+```
+
+
+```{r print_word_clouds, echo=TRUE}
+suppressWarnings({
+  library(webshot)
+  library(wordcloud2)
+  library(htmlwidgets)
+})
+#https://stackoverflow.com/questions/59443054/wordcloud-error-in-rmarkdown-only-one-wordcloud-shows-up-in-html
+#I looked at above page for screenshot workaround
+
+#webshot::install_phantomjs()
+
+print_three_and_above <- function(flavor, size_in) {
+  three_and_above_df <- three_and_above(flavor)
+  three_and_above_df <- clean_text(three_and_above_df)
+  three_and_above_df <- review_to_word(three_and_above_df, flavor)
+  
+  #MOST COMMON WORDS IN ALL REVIEWS, THREE-STAR PLUS
+  print(wordcloud2(three_and_above_df, size = size_in, color ="random-light", backgroundColor = "dark"))
+  
+  #screenshot workaround (see above)
+  html_word_cloud <- wordcloud2(three_and_above_df, size = size_in, color = "random-light", backgroundColor = "dark")
+saveWidget(html_word_cloud, '1.html', selfcontained = F)
+webshot('1.html', '1.png', vwidth=700,vheight=500, delay = 5)
+}
+
+print_positive_words <- function(flavor, size_in) {
+  positive_words_df <- get_positive_words(flavor, sentiments)
+  #MOST COMMON POSITIVE WORDS IN ALL REVIEWS
+  print(wordcloud2(positive_words_df, size = size_in, color = "random-light", backgroundColor = "dark"))
+  
+#screenshot workaround (see above)
+html_word_cloud <- wordcloud2(positive_words_df, size = size_in, color = "random-light", backgroundColor = "dark")
+saveWidget(html_word_cloud, '1.html', selfcontained = F)
+webshot('1.html', '1.png', vwidth=700,vheight=500, delay = 5)
+
+}
+
+print_three_and_below <- function(flavor, size_in) {
+  three_and_below_df <- three_and_below(flavor)
+  three_and_below_df <- clean_text(three_and_below_df)
+  three_and_below_df <- review_to_word(three_and_below_df, flavor)
+  
+  #MOST COMMON WORDS IN ALL REVIEWS, TWO AND ONE STAR
+  print(wordcloud2(three_and_below_df, size = size_in, color ="random-light", backgroundColor = "black"))
+  
+#screenshot workaround (see above)
+html_word_cloud <- wordcloud2(three_and_below_df, size = size_in, color = "random-light", backgroundColor = "dark")
+saveWidget(html_word_cloud, '1.html', selfcontained = F)
+webshot('1.html', '1.png', vwidth=700,vheight=500, delay = 5)
+}
+
+
+print_negative_words <- function(flavor, size_in) {
+  negative_words_df <- get_negative_words(flavor, sentiments)
+  #MOST COMMON NEGATIVE WORDS IN ALL REVIEWS
+  print(wordcloud2(negative_words_df, size = size_in, color = "random-light", backgroundColor = "black"))
+  
+  #screenshot workaround (see above)
+  html_word_cloud <- wordcloud2(negative_words_df, size = size_in, color = "random-light", backgroundColor = "dark")
+saveWidget(html_word_cloud, '1.html', selfcontained = F)
+webshot('1.html', '1.png', vwidth=700,vheight=500, delay = 5)
+
+}
+
+```
+
+### **Positive Product Features by Flavor**
+
+I selected a handful of Talenti's gelatos and sorbettos that showed up in both the Highly Rated and Highly Sentiment-Rated Top 10 lists. Below shows an up-close look at reviews from these select flavors. 
+
+The first word cloud shows the most commonly used words in reviews with 3+ star ratings. This is useful to look at because it will show non-sentiment descriptors (e.g.: chocolate, pint) that are still relevant. In my write-up, I'll call this the "three-and-above word cloud." The next word cloud shows positive words from these reviews. This is useful because it highlights the sentimental descriptors for us, which is much better than us digging around for them in the three-and-above word cloud. I'll call this the "positive word cloud."
+
+## **ORGANIC OAK-AGED VANILLA GELATO**
+### **Tied for First Highest Rated, Tied for Highest Sentiment Analysis**
+
+
+### **Flavor Description**
+
+
+```{r vanilla_info, echo=TRUE}
+vanilla <- ice_cream[ice_cream$name == "ORGANIC OAK-AGED VANILLA GELATO",]
+vanilla$description <- str_replace_all(vanilla$description, "â€™", "'")
+vanilla$description <- str_replace_all(vanilla$description, "â€”", ", ")
+print(vanilla$description)
+print(vanilla$ingredients)
+
+```
+### **ANALYSIS**
+The three-and-above word cloud shows the word "aged" being used 5 times, a relatively high amount, along with "cream." Words such as "notes," "brandy," "bourbon," "alcohol," and "spirits" appear in this cloud as well, likely indicating positive sentiment towards the "bourbon Vanilla" noted in the flavor description. "Complex" also makes an appearance, along with "elegant." Many other desserts/food items show up in the word cloud, including "coconut," "chocolate," "custard," "berries," and "pecans."
+
+"Perfectly," "balanced," "fine," and "smooth" are words that are relatively often used in reviews for the Organic Oak-Aged Vanilla, as shown in the positive word cloud. "Sophisticated" and "fancy" show up, along with "complement." 
+
+Based on the word clouds, people who like this gelato are probably happiest with its "sophisticated" flavor, including the notes of bourbon, its smooth and creamy texture, and its balanced quality. People may also enjoy pairing this flavor with other desserts or food items. Analysis of this flavor may be limited due to a low number of reviews.
+
+```{r vanilla_features, echo=TRUE, fig.show="plot"}
+print_three_and_above("ORGANIC OAK-AGED VANILLA GELATO", 1.5)
+print_positive_words("ORGANIC OAK-AGED VANILLA GELATO", 1)
+```
+
+## **COCONUT ALMOND CHOCOLATE GELATO**
+### **Tied for First Highest Rated, Top 10 Sentiment Analysis**
+
+### **Flavor Description**
+
+```{r cacg_info, echo=TRUE}
+cacg <- ice_cream[ice_cream$name == "COCONUT ALMOND CHOCOLATE GELATO",]
+print(cacg$description)
+print(cacg$ingredients)
+```
+
+### **ANALYSIS**
+The three-and-above word cloud shows very large sizes for "coconut," "almond(s)," chocolate," "ice," and "cream." Reasonably large in this cloud are "combination," "hard," "blend," "taste," "creamy," and "texture."
+
+Two word clouds are printed for positive words, one to zoom in (the second printed) and one as a full-size picture (the third printed). This is because two words, "love" and "favorite," significantly outsize the other words in the cloud. "Smooth" and "nicely" make appearances in this word cloud. Less-used yet similar words in the zoomed-in cloud include "sweet(ness)," "indulgent," "rich," and "complement."
+
+The Coconut Almond Chocolate Gelato's flavor combination is likely what people like most. Some of the largest words in the clouds were ingredients, synonyms for combinations, and descriptors for the taste of the gelato. Similar to the Organic Oak-Aged Vanilla, reviews also commonly used "smooth," "creamy," and "texture," indicating positive sentiment towards the gelato's texture. "Favorite" was a very large word in the positive word cloud, which shows that this flavor is important or special to some customers. It could be attracting new customers and/or reliable sales, if this product provides something so important/unique to the frozen dessert market that customers keep buying it. 
+
+
+```{r cacg_features, echo=TRUE}
+print_three_and_above("COCONUT ALMOND CHOCOLATE GELATO", 1.5)
+print_positive_words("COCONUT ALMOND CHOCOLATE GELATO", 3)
+print_positive_words("COCONUT ALMOND CHOCOLATE GELATO", 1)
+```
+
+## **CARAMEL APPLE PIE GELATO**
+### **Tied for First Highest Rated**
+
+```{r capg_info, echo=TRUE}
+capg <- ice_cream[ice_cream$name == "CARAMEL APPLE PIE GELATO",]
+capg$description <- str_replace_all(capg$description, "â€™", "'")
+print(capg$description)
+print(capg$ingredients)
+
+```
+
+### **ANALYSIS**
+"Apple," "caramel," "honey," "cream," "crust," "pieces," and "flavors" are some of the largest words in the three-and-above word cloud. "Seasonal," "product," and "services" also make appearances. "Sweet," "sweetness," and "smooth" show up in the positive word cloud, along with "favorite," which is one of the largest.
+
+Similar to the Coconut Almond Chocolate Gelato, people who like this gelato probably like the flavor and possibly the seasonal component. They also probably like it for its sweetness and texture. It is also a "favorite" among some people.
+
+```{r capg_features, echo=TRUE}
+print_three_and_above("CARAMEL APPLE PIE GELATO", 1.2)
+print_positive_words("CARAMEL APPLE PIE GELATO", 2.5)
+print_positive_words("CARAMEL APPLE PIE GELATO", 1)
+
+```
+
+
+## **ALPHONSO MANGO SORBETTO**
+### **Tied for 2nd Highest Rated, Top Sentiment-Rated**
+
+```{r ams_info, echo=TRUE}
+ams <- ice_cream[ice_cream$name == "ALPHONSO MANGO SORBETTO",]
+ams$description <- str_replace_all(ams$description, "â€™", "'")
+print(ams$description)
+print(ams$ingredients)
+
+```
+
+### **ANALYSIS**
+
+The three-and-above word cloud shows frequent usage of the words "favorite," "smooth," "sweet," and "mangoes," along with "dairy," "vegan," "sorbet," and "ingredients." The positive word cloud cements these sentiments and adds on the words "fresh" and "refreshing." 
+
+This suggests the Alphonso Mango Sorbetto may be popular among a crowd looking for dairy-free options. People may also like that it is "fresh" and "refreshing," which makes sense for a fruit-based sorbet. 
+
+
+```{r ams_features, echo=TRUE}
+print_three_and_above("ALPHONSO MANGO SORBETTO", 1.5)
+print_positive_words("ALPHONSO MANGO SORBETTO", 1.5)
+
+```
+
+## **PEANUT BUTTER FUDGE SORBETTO**
+### **Tied for 2nd Highest Rated**
+
+### **Flavor Description**
+```{r test_info, echo=TRUE}
+test <- ice_cream[ice_cream$name == "PEANUT BUTTER FUDGE SORBETTO",]
+test$description <- str_replace_all(test$description, "â€™", "'")
+test$description <- str_replace_all(test$description, "â€œ", "'")
+test$description <- str_replace_all(test$description, "â€\u009d", "'")
+print(test$description)
+print(test$ingredients)
+
+```
+
+### **ANALYSIS**
+"Cream," "creamy," "fudge," "chocolate," and "flavor" are top words for this flavor, but the largest behind "butter" is "free." "Milk," "vegan," "lactose," and "allergy" make appearances in the three_and_above word cloud, with "vegan" being the largest out of the four. "Texture," "thick," and "rich" make appearances in this word cloud as well. Interestingly, "coconut" only shows up in the word cloud twice, and may refer to the coconut oil in the sorbet (which may be a dairy substitute). This could suggest the sorbet does not have a strong coconut flavor. More research would have to be done on the reviews mentioning coconut/why coconut oil is included in the sorbet to cement this idea. 
+
+"Free" is the largest word in the positive word cloud. This word cloud also shows "favorite," "smooth," and "sweet."
+
+Similar to above flavors, people who like this sorbet probably like the flavor and flavor combinations. However, more relevant to this flavor, people may like the vegan alternative it provides. Since many words related to the texture, such as "creamy" and "smooth," people may like that the sorbet resembles a dairy-containing gelato or other frozen dessert. 
+
+```{r pbf_features, echo=TRUE}
+print_three_and_above("PEANUT BUTTER FUDGE SORBETTO", 1)
+print_positive_words("PEANUT BUTTER FUDGE SORBETTO", 1)
+
+```
+
+## **CHOCOLATE CHIP COOKIE DOUGH GELATO and Other Low-Rated Flavors: A Quick Look**
+
+### **ANALYSIS**
+
+
+Finally, as a comparison, I took a look at the Chocolate Chip Cookie Dough Gelato, which had the worst ratings and worst sentiment-ratings. 
+
+"Chocolate," "flavor," "cream," and "pieces" show up several times in the three_and_below word cloud, along with "chip," "chunks," "consumer," and "disappointed." "Container" and "pint" also make considerable appearances in the three_and_below word cloud. "Hard"/"frozen" show up, along with "disappointed," "disappointment," "concerns," "false," "lack," "lacking," "anomaly," "inadequate," "misleading," "nonexistent," "exaggeration," and "overwhelmingly." This suggests there might be a significant lack of a certain flavor or ingredient in containers/pints. Possibly, the "inadequate" ingredient might be the cookie dough pieces since "pieces" was in the word cloud and "hard" and "frozen" also show up in reviews. 
+
+For confirmation, I looked at the first few reviews and saw mostly complaints about a lack of/poor distribution of cookie dough pieces in pints. 
+
+Some reviews included frustration about this being a well-documented issue in reviews. Likewise, "services" and "reviews" also show up frequently in the three_and_below word cloud. It's possible that increased customer engagement in this regard may help alleviate pressure on this product.  
+
+```{r one_more, echo=TRUE}
+#cost, quality, balanced flavors (none overpowering)/alignment with product description, recipe changes,
+#customer engagement
+
+print_three_and_below("CHOCOLATE CHIP COOKIE DOUGH GELATO", 1.7)
+print_negative_words("CHOCOLATE CHIP COOKIE DOUGH GELATO", 1.5)
+
+
+```
+
+Below are word clouds for two more flavors, the Vanilla Blueberry Crumble Gelato and the Raspberry Cheesecake Gelato. **Only the negative words are printed for the former.** These both had a 3.9 average rating, placing them in the Bottom 10. Across all the word clouds, complaints seem to surround the quality of the product and imbalance of flavors. The Vanilla Blueberry Crumble had negative words such as "missed," "mushy," "overwhelming," and "deceiving." The Raspberry Cheesecake had negative words such as "hard," "weird," "chunky," "lack," "bland," "sour," and "spoiled." 
+
+```{r last_one, echo=TRUE}
+
+print_negative_words("VANILLA BLUEBERRY CRUMBLE GELATO", 2)
+
+print_three_and_below("RASPBERRY CHEESECAKE GELATO", 1.7)
+print_negative_words("RASPBERRY CHEESECAKE GELATO", 1)
+
+```
+
+
+
+
+
+
